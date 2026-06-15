@@ -1,34 +1,38 @@
 <?php
 $uploadDir = 'uploads/';
-$response = ['status' => '', 'message' => ''];
 
 if (!file_exists($uploadDir)) {
     mkdir($uploadDir, 0777, true);
 }
 
+if (isset($_GET['action']) && $_GET['action'] === 'list') {
+    header('Content-Type: application/json');
+    $files = scandir($uploadDir);
+    $files = array_diff($files, ['.', '..']);
+    echo json_encode(array_values($files));
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
+    header('Content-Type: application/json');
+    
     $file = $_FILES['file'];
     
     if ($file['error'] !== UPLOAD_ERR_OK) {
-        $response['status'] = 'error';
-        $response['message'] = 'Upload failed with error code: ' . $file['error'];
-        echo json_encode($response);
+        echo json_encode(['status' => 'error', 'message' => 'Upload failed with error code: ' . $file['error']]);
         exit;
     }
     
     $fileName = basename($file['name']);
-    $targetPath = $uploadDir . time() . '_' . $fileName;
+    $extension = pathinfo($fileName, PATHINFO_EXTENSION);
+    $newFileName = time() . '_' . uniqid() . '.' . $extension;
+    $targetPath = $uploadDir . $newFileName;
     
     if (move_uploaded_file($file['tmp_name'], $targetPath)) {
-        $response['status'] = 'success';
-        $response['message'] = 'File uploaded successfully';
-        $response['file'] = $targetPath;
+        echo json_encode(['status' => 'success', 'message' => 'File uploaded successfully', 'file' => $targetPath]);
     } else {
-        $response['status'] = 'error';
-        $response['message'] = 'Failed to move uploaded file';
+        echo json_encode(['status' => 'error', 'message' => 'Failed to move uploaded file']);
     }
-    
-    echo json_encode($response);
     exit;
 }
 ?>
@@ -50,6 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
         .file-list { margin-top: 30px; }
         .file-list ul { list-style: none; padding: 0; }
         .file-list li { background: #f4f4f4; margin: 5px 0; padding: 10px; border-radius: 5px; word-break: break-all; }
+        .file-list a { text-decoration: none; color: #0066cc; }
+        .file-list a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -68,14 +74,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
     </div>
 
     <script>
-        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+        const uploadForm = document.getElementById('uploadForm');
+        const fileInput = document.getElementById('fileInput');
+        const resultDiv = document.getElementById('result');
+        
+        uploadForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             
+            if (!fileInput.files.length) {
+                resultDiv.className = 'error';
+                resultDiv.innerHTML = '❌ Please select a file';
+                return;
+            }
+            
             const formData = new FormData();
-            const fileInput = document.getElementById('fileInput');
             formData.append('file', fileInput.files[0]);
             
-            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '⏳ Uploading...';
+            resultDiv.className = '';
             
             try {
                 const response = await fetch(window.location.href, {
@@ -87,8 +103,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
                 
                 if (data.status === 'success') {
                     resultDiv.className = 'success';
-                    resultDiv.innerHTML = '✅ ' + data.message + ': ' + data.file;
+                    resultDiv.innerHTML = '✅ ' + data.message + '<br>' + data.file;
                     loadFileList();
+                    fileInput.value = '';
                 } else {
                     resultDiv.className = 'error';
                     resultDiv.innerHTML = '❌ ' + data.message;
@@ -97,8 +114,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
                 resultDiv.className = 'error';
                 resultDiv.innerHTML = '❌ Upload failed: ' + error.message;
             }
-            
-            fileInput.value = '';
         });
         
         async function loadFileList() {
@@ -115,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
                 
                 files.forEach(file => {
                     const li = document.createElement('li');
-                    const fileUrl = '<?php echo $uploadDir; ?>' + file;
+                    const fileUrl = 'uploads/' + file;
                     li.innerHTML = `<a href="${fileUrl}" target="_blank">${file}</a>`;
                     fileList.appendChild(li);
                 });
@@ -124,19 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
             }
         }
         
-        if (window.location.href.indexOf('?action=list') === -1) {
-            loadFileList();
-        }
+        loadFileList();
     </script>
 </body>
 </html>
-
-<?php
-if (isset($_GET['action']) && $_GET['action'] === 'list') {
-    header('Content-Type: application/json');
-    $files = scandir($uploadDir);
-    $files = array_diff($files, ['.', '..']);
-    echo json_encode(array_values($files));
-    exit;
-}
-?>
